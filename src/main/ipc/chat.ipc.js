@@ -170,6 +170,17 @@ function registerChatHandlers() {
     }
   });
 
+  // Get detailed context window usage breakdown (SDK 0.2.86+)
+  ipcMain.handle('chat-get-context-usage', async (_event, { sessionId }) => {
+    try {
+      const usage = await chatService.getContextUsage(sessionId);
+      return { success: true, usage };
+    } catch (err) {
+      console.error('[chat-get-context-usage] Error:', err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
   // Enhance a user prompt via Haiku before sending
   ipcMain.handle('chat-enhance-prompt', async (_event, { text }) => {
     try {

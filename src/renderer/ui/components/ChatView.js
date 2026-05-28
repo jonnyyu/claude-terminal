@@ -443,7 +443,10 @@ class ChatView extends BaseComponent {
               <button class="chat-model-btn"><span class="chat-model-label">Sonnet</span> <span class="chat-model-arrow">&#9662;</span></button>
               <div class="chat-model-dropdown" style="display:none"></div>
             </div>
-            <span class="chat-status-tokens"></span>
+            <span class="chat-status-tokens" tabindex="0">
+              <span class="chat-status-tokens-text"></span>
+              <div class="chat-context-popover" hidden></div>
+            </span>
             <span class="chat-status-cost"></span>
           </div>
         </div>
@@ -465,6 +468,8 @@ class ChatView extends BaseComponent {
   const effortLabel = chatView.querySelector('.chat-effort-label');
   const effortDropdown = chatView.querySelector('.chat-effort-dropdown');
   const statusTokens = chatView.querySelector('.chat-status-tokens');
+  const statusTokensText = chatView.querySelector('.chat-status-tokens-text');
+  const contextPopover = chatView.querySelector('.chat-context-popover');
   const statusCost = chatView.querySelector('.chat-status-cost');
   const slashDropdown = chatView.querySelector('.chat-slash-dropdown');
   const attachBtn = chatView.querySelector('.chat-attach-btn');
@@ -3633,6 +3638,7 @@ class ChatView extends BaseComponent {
         <div class="chat-subagent-status running"><div class="chat-tool-spinner"></div></div>
         <svg class="chat-subagent-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
       </div>
+      <div class="chat-subagent-summary" hidden></div>
       <div class="chat-subagent-body"></div>
     `;
 
@@ -3704,6 +3710,26 @@ class ChatView extends BaseComponent {
       if (info.toolUseId === parentToolUseId) return info;
     }
     return null;
+  }
+
+  /**
+   * Apply a task_progress / task_started / task_notification system message to
+   * a subagent card (SDK 0.2.45+ events + 0.2.72+ summary field).
+   */
+  function applySubagentProgress(info, message) {
+    if (!info || info.completed) return;
+    if (message.description) {
+      const descEl = info.card.querySelector('.chat-subagent-desc');
+      if (descEl) descEl.textContent = message.description;
+    }
+    if (message.last_tool_name && info.activityEl) {
+      info.activityEl.textContent = `${message.last_tool_name}...`;
+    }
+    if (message.summary && info.summaryEl) {
+      info.summaryEl.hidden = false;
+      info.summaryEl.textContent = message.summary;
+    }
+    scrollToBottom();
   }
 
   // ── Parallel Run Widget (inline live status) ──────────────────────────────
@@ -4013,7 +4039,18 @@ class ChatView extends BaseComponent {
         if (!block) break;
         const blockIdx = event.index ?? info.subBlockIndex;
 
-        if (block.type === 'tool_use' && block.name !== 'TodoWrite' && block.name !== 'TaskCreate' && block.name !== 'TaskUpdate' && block.name !== 'TaskList' && block.name !== 'TaskGet') {
+        if (block.type === 'text') {
+          // SDK 0.2.119+ forwards subagent text deltas; render them inside the body.
+          const textEl = document.createElement('div');
+          textEl.className = 'sa-text';
+          info.bodyEl.appendChild(textEl);
+          info.textEl = textEl;
+          info.textBuffer = '';
+          info.subBuffers.set(blockIdx, '__text__');
+          if (info.subTools.size === 0 && !info.card.classList.contains('expanded')) {
+            info.card.classList.add('expanded');
+          }
+        } else if (block.type === 'tool_use' && block.name !== 'TodoWrite' && block.name !== 'TaskCreate' && block.name !== 'TaskUpdate' && block.name !== 'TaskList' && block.name !== 'TaskGet') {
           // Add mini tool entry in the subagent body
           const mini = document.createElement('div');
           mini.className = 'sa-tool';
@@ -4049,9 +4086,13 @@ class ChatView extends BaseComponent {
         if (delta.type === 'input_json_delta') {
           const idx = event.index ?? (info.subBlockIndex - 1);
           const buf = info.subBuffers.get(idx);
-          if (buf !== undefined) {
+          if (buf !== undefined && buf !== '__text__') {
             info.subBuffers.set(idx, buf + (delta.partial_json || ''));
           }
+        } else if (delta.type === 'text_delta' && info.textEl) {
+          info.textBuffer += delta.text || '';
+          info.textEl.textContent = info.textBuffer;
+          info.activityEl.textContent = t('chat.subagentThinking') || 'Thinking...';
         }
         break;
       }
@@ -4060,6 +4101,15 @@ class ChatView extends BaseComponent {
         const stopIdx = event.index ?? (info.subBlockIndex - 1);
         const jsonStr = info.subBuffers.get(stopIdx);
         const mini = info.subTools.get(stopIdx);
+
+        if (jsonStr === '__text__') {
+          // Text block ended — keep the textEl, reset pointer so the next text
+          // block creates a new paragraph instead of appending to the previous.
+          info.textEl = null;
+          info.textBuffer = '';
+          info.subBuffers.delete(stopIdx);
+          break;
+        }
 
         if (mini) {
           if (jsonStr) {
@@ -4599,13 +4649,89 @@ class ChatView extends BaseComponent {
       const contextLimit = getSetting('enable1MContext') ? 1000000 : 200000;
       const pct = Math.round((inputTokens / contextLimit) * 100);
       const formatK = (n) => n >= 1000 ? Math.round(n / 1000) + 'K' : n;
-      statusTokens.textContent = `${formatK(inputTokens)} / ${formatK(contextLimit)} (${pct}%)`;
+      statusTokensText.textContent = `${formatK(inputTokens)} / ${formatK(contextLimit)} (${pct}%)`;
       statusTokens.title = `${t('chat.contextWindowUsage') || 'Context window'}: ${inputTokens.toLocaleString()} / ${contextLimit.toLocaleString()} tokens`;
     } else if (totalTokens > 0) {
-      statusTokens.textContent = `${totalTokens.toLocaleString()} tokens`;
+      statusTokensText.textContent = `${totalTokens.toLocaleString()} tokens`;
     }
     if (totalCost > 0) statusCost.textContent = `$${totalCost.toFixed(4)}`;
   }
+
+  // ── Context usage breakdown popover (SDK 0.2.86+) ──────────────────────
+  let contextUsageFetchTimer = null;
+  let contextUsageBusy = false;
+
+  function renderContextBreakdown(usage) {
+    if (!usage) {
+      contextPopover.innerHTML = `<div class="ccp-empty">${escapeHtml(t('chat.contextNoBreakdown') || 'Breakdown unavailable')}</div>`;
+      return;
+    }
+    const breakdown = usage.breakdown || usage.categories || {};
+    const total = usage.total || Object.values(breakdown).reduce((a, b) => a + (Number(b) || 0), 0);
+    const limit = usage.limit || (getSetting('enable1MContext') ? 1000000 : 200000);
+    const formatK = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'K' : String(n);
+    const entries = Object.entries(breakdown)
+      .filter(([, v]) => Number(v) > 0)
+      .sort((a, b) => Number(b[1]) - Number(a[1]));
+
+    const header = `
+      <div class="ccp-header">
+        <span class="ccp-title">${escapeHtml(t('chat.contextWindowUsage') || 'Context window')}</span>
+        <span class="ccp-total">${formatK(total)} / ${formatK(limit)}</span>
+      </div>
+    `;
+    const rows = entries.length
+      ? entries.map(([key, value]) => {
+          const v = Number(value) || 0;
+          const pct = total > 0 ? Math.min(100, (v / total) * 100) : 0;
+          return `
+            <div class="ccp-row">
+              <span class="ccp-label">${escapeHtml(key.replace(/_/g, ' '))}</span>
+              <div class="ccp-bar"><div class="ccp-fill" style="width:${pct.toFixed(1)}%"></div></div>
+              <span class="ccp-value">${formatK(v)}</span>
+            </div>
+          `;
+        }).join('')
+      : `<div class="ccp-empty">${escapeHtml(t('chat.contextNoBreakdown') || 'No detailed breakdown available')}</div>`;
+    contextPopover.innerHTML = header + rows;
+  }
+
+  async function fetchAndShowContextBreakdown() {
+    if (!sessionId || contextUsageBusy) return;
+    contextUsageBusy = true;
+    contextPopover.hidden = false;
+    contextPopover.innerHTML = `<div class="ccp-loading">${escapeHtml(t('chat.loading') || 'Loading...')}</div>`;
+    try {
+      const result = await window.electron_api.chat.getContextUsage({ sessionId });
+      if (result?.success && result.usage) {
+        renderContextBreakdown(result.usage);
+      } else {
+        renderContextBreakdown(null);
+      }
+    } catch {
+      renderContextBreakdown(null);
+    } finally {
+      contextUsageBusy = false;
+    }
+  }
+
+  function hideContextBreakdown() {
+    contextPopover.hidden = true;
+    if (contextUsageFetchTimer) {
+      clearTimeout(contextUsageFetchTimer);
+      contextUsageFetchTimer = null;
+    }
+  }
+
+  statusTokens.addEventListener('mouseenter', () => {
+    if (!sessionId || inputTokens === 0) return;
+    contextUsageFetchTimer = setTimeout(fetchAndShowContextBreakdown, 200);
+  });
+  statusTokens.addEventListener('mouseleave', hideContextBreakdown);
+  statusTokens.addEventListener('focus', () => {
+    if (sessionId && inputTokens > 0) fetchAndShowContextBreakdown();
+  });
+  statusTokens.addEventListener('blur', hideContextBreakdown);
 
   let userHasScrolled = false;
   let hasNewMessages = false;
@@ -4725,6 +4851,11 @@ class ChatView extends BaseComponent {
             startedAt: Date.now(),
           });
         }
+        // Also route to a matching subagent card (SDK 0.2.45+)
+        const subInfo = message.tool_use_id ? findSubagentByParentId(message.tool_use_id) : null;
+        if (subInfo) {
+          applySubagentProgress(subInfo, message);
+        }
       } else if (message.subtype === 'task_progress') {
         const taskId = message.task_id;
         if (taskId) {
@@ -4735,6 +4866,10 @@ class ChatView extends BaseComponent {
           if (message.usage) patch.usage = message.usage;
           if (message.tool_use_id) patch.toolUseId = message.tool_use_id;
           bgTaskStore.update(taskId, patch);
+        }
+        const subInfo = message.tool_use_id ? findSubagentByParentId(message.tool_use_id) : null;
+        if (subInfo) {
+          applySubagentProgress(subInfo, message);
         }
       } else if (message.subtype === 'task_notification') {
         const taskId = message.task_id;
@@ -4747,6 +4882,10 @@ class ChatView extends BaseComponent {
             toolUseId: message.tool_use_id || undefined,
             endedAt: Date.now(),
           });
+        }
+        const subInfo = message.tool_use_id ? findSubagentByParentId(message.tool_use_id) : null;
+        if (subInfo) {
+          applySubagentProgress(subInfo, message);
         }
       } else if (message.subtype === 'task_updated') {
         const taskId = message.task_id;
@@ -4889,9 +5028,11 @@ class ChatView extends BaseComponent {
             const card = appendSubagentCard();
             const bodyEl = card.querySelector('.chat-subagent-body');
             const activityEl = card.querySelector('.chat-subagent-activity');
+            const summaryEl = card.querySelector('.chat-subagent-summary');
             taskToolIndices.set(blockIdx, {
-              card, toolUseId: block.id, bodyEl, activityEl,
-              subTools: new Map(), subBuffers: new Map(), subBlockIndex: 0
+              card, toolUseId: block.id, bodyEl, activityEl, summaryEl,
+              subTools: new Map(), subBuffers: new Map(), subBlockIndex: 0,
+              textEl: null, textBuffer: ''
             });
             setStatus('working', t('chat.subagentRunning') || 'Agent running...');
           } else if (block.name === 'mcp__claude-terminal__parallel_start_run') {

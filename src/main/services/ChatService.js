@@ -450,6 +450,14 @@ class ChatService {
       // Enable file checkpointing for rewind support
       options.enableFileCheckpointing = true;
 
+      // Stream subagent text deltas to consumers (SDK 0.2.119+)
+      // Lets us render reasoning text inside subagent cards, not just tool calls.
+      options.forwardSubagentText = true;
+
+      // Periodic AI-generated progress summaries for running subagents (SDK 0.2.72+)
+      // Arrives via task_progress system messages with a `summary` field.
+      options.agentProgressSummaries = true;
+
       // Resume existing session if requested
       if (resumeSessionId) {
         options.resume = resumeSessionId;
@@ -695,6 +703,23 @@ class ChatService {
     const effortMap = { low: 1024, medium: 8192, high: null, xhigh: null, max: null };
     const tokens = effort in effortMap ? effortMap[effort] : null;
     await session.queryStream.setMaxThinkingTokens(tokens);
+  }
+
+  /**
+   * Get a detailed breakdown of context window usage (SDK 0.2.86+).
+   * Returns { total, breakdown: { system, conversation, tools, ... }, limit, percent }
+   * or null if unavailable for this session.
+   */
+  async getContextUsage(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.isCloud) return null;
+    if (!session.queryStream?.getContextUsage) return null;
+    try {
+      return await session.queryStream.getContextUsage();
+    } catch (err) {
+      console.error('[ChatService] getContextUsage failed:', err.message);
+      return null;
+    }
   }
 
   /**
