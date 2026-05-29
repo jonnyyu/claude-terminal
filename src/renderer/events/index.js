@@ -22,10 +22,13 @@ let hookSessionCount = 0;
 // projectId -> { toolCount, toolNames: Set, lastToolName, startTime, notified }
 const sessionContext = new Map();
 
-// ── Dedup set for SESSION_END notifications (hooks-only) ──
-// Both Stop and SessionEnd hooks fire SESSION_END — track which projects were
-// already notified to avoid showing "done" twice in quick succession.
-const notifiedSessions = new Set(); // projectId
+// ── Dedup for SESSION_END notifications (hooks-only) ──
+// 'Stop' fires after EVERY turn (reason:'stop'); 'SessionEnd' fires once when the
+// session closes (reason:'end'), usually right after the final Stop. We notify on
+// every Stop, and only suppress a SessionEnd that immediately follows a Stop for the
+// same project — this avoids a double "done" without dropping per-turn notifications.
+const lastDoneNotify = new Map(); // projectId -> timestamp of last Stop notification
+const SESSION_END_DEDUP_MS = 4000;
 
 // ── Last-active Claude tab tracking (for multi-tab session ID capture) ──
 // projectId -> terminalId (the tab that was most recently focused)
@@ -89,23 +92,34 @@ function wireNotificationConsumer() {
       console.debug(`[Events] Tool error: ${e.data?.toolName || 'unknown'}`, e.data?.error || '');
     }),
 
-    // Session end = definitive "Claude is done" → show notification
+    // Session end = "Claude is done" → show notification (one per turn).
     // This is the ONLY place we notify to avoid duplicates with claude:done (TaskCompleted).
-    // Guard: only fire once per session — Stop and SessionEnd hooks both emit SESSION_END,
-    // so the second emission is skipped via notifiedSessions dedup set.
+    // Stop fires per turn and SessionEnd once at the end; see SESSION_END_DEDUP_MS above
+    // for how a trailing SessionEnd is collapsed into the preceding Stop notification.
     eventBus.on(EVENT_TYPES.SESSION_END, (e) => {
       if (e.source !== 'hooks') return;
       if (!e.projectId) return;
-      // Dedup: both Stop and SessionEnd hooks fire SESSION_END — only notify once
-      if (notifiedSessions.has(e.projectId)) {
-        notifiedSessions.delete(e.projectId);
-        return;
+
+      const now = Date.now();
+      const reason = e.data?.reason;
+      // Suppress a SessionEnd (reason:'end') that immediately follows a Stop notification
+      // for the same project — they describe the same "Claude is done" moment.
+      // Per-turn Stop events are NOT deduped against each other.
+      if (reason === 'end') {
+        const last = lastDoneNotify.get(e.projectId) || 0;
+        if (now - last < SESSION_END_DEDUP_MS) {
+          lastDoneNotify.delete(e.projectId);
+          return;
+        }
+      } else {
+        // Stop (turn end): remember so a trailing SessionEnd gets deduped
+        lastDoneNotify.set(e.projectId, now);
       }
-      notifiedSessions.add(e.projectId);
-      setTimeout(() => notifiedSessions.delete(e.projectId), 10000); // auto-cleanup after 10s
+
+      // NOTE: do NOT delete sessionContext here — wireClaudeMdReviewConsumer (registered
+      // later) also reads it on SESSION_END. It is reset on the next SESSION_START, so it
+      // never accumulates stale data across sessions (bounded to one entry per project).
       const ctx = sessionContext.get(e.projectId);
-      // Clean up regardless
-      sessionContext.delete(e.projectId);
 
       const terminalId = resolveTerminalId(e.projectId);
       const projectName = resolveProjectName(e.projectId);
@@ -188,6 +202,11 @@ function resolveProjectName(projectId) {
  */
 function resolveTerminalId(projectId) {
   if (!projectId) return null;
+  // Prefer the most recent real Claude terminal (same heuristic as session-id capture),
+  // so a notification click lands on the tab that actually finished — not an old/basic one.
+  const claudeId = findClaudeTerminalForProject(projectId);
+  if (claudeId != null) return claudeId;
+  // Fallback: any terminal belonging to the project.
   try {
     const { terminalsState } = require('../state/terminals.state');
     const terminals = terminalsState.get().terminals;
@@ -342,14 +361,28 @@ function wireAttentionConsumer() {
         { label: t('terminals.notifBtnDeny'),  action: 'deny',  style: 'danger'  }
       ];
 
+      // Resolve to 'allow' if the notification can't be shown — otherwise the hook handler
+      // blocks for ~30s waiting for a response that will never come (notifications disabled,
+      // window focused on the terminal, or notificationFn missing). Mirrors the deduped path above.
+      const autoAllow = () => {
+        if (!requestId) return;
+        try {
+          window.electron_api.hooks.resolvePermission(requestId, 'allow');
+        } catch (err) {
+          console.error('[Events] Failed to auto-resolve unshown permission:', err);
+        }
+      };
+
       if (notificationFn) {
-        notificationFn('permission', projectName || 'Claude Terminal', body, terminalId, {
+        const shown = notificationFn('permission', projectName || 'Claude Terminal', body, terminalId, {
           buttons,
           autoDismiss: 8000,
           meta: { requestId }
         });
+        if (!shown) autoAllow();
       } else {
-        console.error('[Events] notificationFn not set — permission notification lost for requestId=' + requestId);
+        console.error('[Events] notificationFn not set — auto-allowing permission for requestId=' + requestId);
+        autoAllow();
       }
     })
   );

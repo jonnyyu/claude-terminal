@@ -417,9 +417,12 @@ async function _tryCloudAutoConnect() {
 }
 
 // ========== NOTIFICATIONS ==========
+// Returns true if a notification was actually shown, false if it was suppressed
+// (notifications disabled, or the window is focused on the very terminal that fired).
+// Callers that block on a response (e.g. permission requests) use this to avoid deadlock.
 function showNotification(type, title, body, terminalId, extraOptions) {
-  if (!isNotificationsEnabled()) return;
-  if (document.hasFocus() && terminalsState.get().activeTerminal === terminalId) return;
+  if (!isNotificationsEnabled()) return false;
+  if (document.hasFocus() && terminalsState.get().activeTerminal === terminalId) return false;
   const { buttons, autoDismiss, meta } = extraOptions || {};
   const defaultButtons = [{ label: t('terminals.notifBtnShow'), action: 'show', style: 'primary' }];
   api.notification.show({
@@ -431,6 +434,7 @@ function showNotification(type, title, body, terminalId, extraOptions) {
     buttons: buttons || defaultButtons,
     meta: Object.assign({ notifType: type || 'done' }, meta || {})
   });
+  return true;
 }
 
 api.notification.onClicked(({ terminalId, answerText }) => {
