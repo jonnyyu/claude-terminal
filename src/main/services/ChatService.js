@@ -20,15 +20,28 @@ async function loadSDK() {
 }
 
 /**
- * Resolve the path to the SDK's cli.js.
- * In packaged mode, asarUnpack puts it outside the asar at app.asar.unpacked/
+ * Resolve the path to the SDK's native CLI binary.
+ *
+ * As of @anthropic-ai/claude-agent-sdk 0.3 the SDK no longer ships a `cli.js`;
+ * it spawns a platform-specific native binary shipped in the optional dependency
+ * `@anthropic-ai/claude-agent-sdk-<platform>-<arch>` (e.g. `claude.exe` on
+ * Windows). That package is pulled into the asarUnpack closure automatically
+ * (resolve-unpack-deps walks optionalDependencies — see electron-builder.config.js).
+ *
+ * We resolve it explicitly so the spawn behaves identically in dev and in the
+ * packaged app.asar.unpacked layout. If the expected binary is missing (e.g. a
+ * musl Linux build), we return null so the SDK self-resolves via
+ * require.resolve, which handles the glibc/musl split on its own.
  */
 function getSdkCliPath() {
-  const sdkRelative = path.join('node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js');
-  if (app.isPackaged) {
-    return path.join(app.getAppPath().replace('app.asar', 'app.asar.unpacked'), sdkRelative);
-  }
-  return path.join(app.getAppPath(), sdkRelative);
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  const pkg = `claude-agent-sdk-${process.platform}-${process.arch}`;
+  const binRelative = path.join('node_modules', '@anthropic-ai', pkg, `claude${ext}`);
+  const base = app.isPackaged
+    ? app.getAppPath().replace('app.asar', 'app.asar.unpacked')
+    : app.getAppPath();
+  const binPath = path.join(base, binRelative);
+  return fs.existsSync(binPath) ? binPath : null;
 }
 
 /**
@@ -897,7 +910,7 @@ class ChatService {
     // SDK process crashed at startup (exit code 1, 0 messages)
     if (raw.includes('exited with code')) {
       const code = raw.match(/exited with code (\d+)/)?.[1] || '?';
-      return `Claude Code process crashed (exit code ${code}). Please ensure Node.js is installed and up to date, then restart the app.\n\nIf the problem persists, try running "claude" in a terminal to check for errors.`;
+      return `Claude Code process crashed (exit code ${code}). Try restarting the app.\n\nIf the problem persists, try running "claude" in a terminal to check for errors.`;
     }
 
     // Process killed by signal
@@ -908,11 +921,12 @@ class ChatService {
     // Executable not found — either no JS runtime (node/bun) or cli.js missing from install
     if (raw.includes('executable not found') || raw.includes('not found at')) {
       const cliPath = getSdkCliPath();
-      const cliExists = fs.existsSync(cliPath);
-      if (!cliExists) {
+      // null means the explicit native binary is absent and the SDK is
+      // self-resolving — if that also failed, the SDK files are missing.
+      if (!cliPath || !fs.existsSync(cliPath)) {
         return 'Claude Code SDK files are missing or corrupted. Please reinstall Claude Terminal.';
       }
-      return 'Node.js is not installed on this machine. The chat requires Node.js to run.\n\nInstall it from https://nodejs.org (LTS) then restart Claude Terminal.';
+      return 'The Claude Code SDK binary is present but failed to launch. This may be caused by an antivirus or insufficient permissions. Try restarting Claude Terminal.';
     }
 
     // Non-JSON output (usually startup crash with error printed to stdout)
