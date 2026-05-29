@@ -95,6 +95,9 @@ scripts/hooks-test/
 scripts/*-temp*.js
 scripts/test-plan-output.log
 
+# Design previews / mockups (not shipped)
+.preview/
+
 # One-off junk files
 /discord-post.md
 /test.txt
