@@ -35,6 +35,7 @@ const { registerParallelHandlers } = require('./parallel.ipc');
 const { registerWorkspaceHandlers } = require('./workspace.ipc');
 const { registerErrorLogHandlers } = require('./errorLog.ipc');
 const { registerAccountsHandlers } = require('./accounts.ipc');
+const { registerDiscordRpcHandlers } = require('./discord-rpc.ipc');
 
 /**
  * Register all IPC handlers
@@ -80,6 +81,7 @@ function registerAllHandlers(mainWindow) {
   registerWorkspaceHandlers();
   registerErrorLogHandlers();
   registerAccountsHandlers();
+  registerDiscordRpcHandlers();
 
   // Wire terminal PTY exits → workflow triggers (no circular dep)
   const terminalService = require('../services/TerminalService');
@@ -90,11 +92,24 @@ function registerAllHandlers(mainWindow) {
     }
   };
 
-  // Wire chat session lifecycle → workflow triggers
+  // Wire chat session lifecycle → workflow triggers + Discord Rich Presence
   const chatService = require('../services/ChatService');
+  const discordRpcService = require('../services/DiscordRpcService');
+  const pathModule = require('path');
   chatService.setLifecycleCallback((event) => {
     try { workflowService.onChatSessionEvent(event); } catch (e) {
       console.warn('[IPC] workflow.onChatSessionEvent failed:', e.message);
+    }
+    // Discord presence: "Coding in {project}" while a session runs, idle otherwise
+    try {
+      if (event.event === 'start') {
+        const name = event.cwd ? pathModule.basename(event.cwd) : null;
+        discordRpcService.setProject(name, { coding: true });
+      } else if (event.event === 'end') {
+        discordRpcService.setIdle();
+      }
+    } catch (e) {
+      console.warn('[IPC] discordRpc presence update failed:', e.message);
     }
   });
 

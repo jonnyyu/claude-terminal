@@ -18,6 +18,7 @@ const remoteServer = require('./RemoteServer');
 const workflowService = require('./WorkflowService');
 const databaseService = require('./DatabaseService');
 const parallelTaskService = require('./ParallelTaskService');
+const discordRpcService = require('./DiscordRpcService');
 
 /**
  * Initialize all services with main window reference
@@ -39,6 +40,9 @@ function initializeServices(mainWindow) {
   workflowService.setMainWindow(mainWindow);
   workflowService.setDeps({ chatService, databaseService });
   workflowService.init().catch(err => console.error('[WorkflowService] Init failed:', err.message));
+
+  // Discord Rich Presence (reads its own enabled/showProject prefs from settings.json)
+  try { discordRpcService.start(); } catch (e) { console.warn('[Services] DiscordRPC start failed:', e.message); }
 
   // Provision unified MCP in global Claude settings
   databaseService.provisionGlobalMcp().catch(() => {});
@@ -210,6 +214,7 @@ function cleanupServices() {
   hookEventServer.stop();
   remoteServer.stop();
   workflowService.destroy();
+  discordRpcService.destroy();
   databaseService.disconnectAll().catch(() => {});
   if (_mcpPollTimer) clearInterval(_mcpPollTimer);
   // Kill any active git child processes (clone, pull, push, etc.)

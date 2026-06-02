@@ -1105,6 +1105,26 @@ class SettingsPanel extends BasePanel {
                 </div>
                 <div class="settings-toggle-row">
                   <div class="settings-toggle-label">
+                    <div>${t('settings.discordRpc')}</div>
+                    <div class="settings-toggle-desc">${t('settings.discordRpcDesc')}</div>
+                  </div>
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="discord-rpc-toggle" ${settings.discordRpcEnabled !== false ? 'checked' : ''}>
+                    <span class="settings-toggle-slider"></span>
+                  </label>
+                </div>
+                <div class="settings-toggle-row">
+                  <div class="settings-toggle-label">
+                    <div>${t('settings.discordRpcShowProject')}</div>
+                    <div class="settings-toggle-desc">${t('settings.discordRpcShowProjectDesc')}</div>
+                  </div>
+                  <label class="settings-toggle">
+                    <input type="checkbox" id="discord-rpc-show-project-toggle" ${settings.discordRpcShowProject !== false ? 'checked' : ''}>
+                    <span class="settings-toggle-slider"></span>
+                  </label>
+                </div>
+                <div class="settings-toggle-row">
+                  <div class="settings-toggle-label">
                     <div>${t('settings.enhancePrompts')}</div>
                     <div class="settings-toggle-desc">${t('settings.enhancePromptsDesc')}</div>
                   </div>
@@ -1741,6 +1761,10 @@ class SettingsPanel extends BasePanel {
       const newAiTabNaming = aiTabNamingToggle ? aiTabNamingToggle.checked : true;
       const followupSuggestionsToggle = document.getElementById('followup-suggestions-toggle');
       const newEnableFollowupSuggestions = followupSuggestionsToggle ? followupSuggestionsToggle.checked : true;
+      const discordRpcToggle = document.getElementById('discord-rpc-toggle');
+      const newDiscordRpcEnabled = discordRpcToggle ? discordRpcToggle.checked : true;
+      const discordRpcShowProjectToggle = document.getElementById('discord-rpc-show-project-toggle');
+      const newDiscordRpcShowProject = discordRpcShowProjectToggle ? discordRpcShowProjectToggle.checked : true;
       const enhancePromptsToggle = document.getElementById('enhance-prompts-toggle');
       const newEnhancePrompts = enhancePromptsToggle ? enhancePromptsToggle.checked : false;
       const autoClaudeMdToggle = document.getElementById('auto-claude-md-toggle');
@@ -1809,6 +1833,8 @@ class SettingsPanel extends BasePanel {
         tabRenameOnSlashCommand: newTabRenameOnSlashCommand,
         aiTabNaming: newAiTabNaming,
         enableFollowupSuggestions: newEnableFollowupSuggestions,
+        discordRpcEnabled: newDiscordRpcEnabled,
+        discordRpcShowProject: newDiscordRpcShowProject,
         enhancePrompts: newEnhancePrompts,
         autoClaudeMdUpdate: newAutoClaudeMd,
         telemetryEnabled: newTelemetryEnabled,
@@ -1835,6 +1861,14 @@ class SettingsPanel extends BasePanel {
       }
 
       self._ctx.saveSettings();
+
+      // Apply Discord Rich Presence change live (no restart needed)
+      try {
+        window.electron_api?.discordRpc?.applySettings({
+          enabled: newDiscordRpcEnabled,
+          showProject: newDiscordRpcShowProject,
+        });
+      } catch (_) { /* discordRpc bridge unavailable */ }
 
       document.body.classList.toggle('compact-projects', newCompactProjects);
       document.body.classList.toggle('reduce-motion', newReduceMotion);

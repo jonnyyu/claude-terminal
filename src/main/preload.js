@@ -609,6 +609,12 @@ contextBridge.exposeInMainWorld('electron_api', {
     getStatus: () => ipcRenderer.invoke('telemetry:get-status'),
   },
 
+  // ==================== DISCORD RICH PRESENCE ====================
+  discordRpc: {
+    applySettings: (params) => ipcRenderer.invoke('discord-rpc:apply-settings', params),
+    status: () => ipcRenderer.invoke('discord-rpc:status'),
+  },
+
   // ==================== CLOUD ====================
   cloud: {
     connect: (params) => ipcRenderer.invoke('cloud:connect', params),

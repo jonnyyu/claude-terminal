@@ -79,6 +79,8 @@ const defaultSettings = {
   personaName: '', // User's name for persona (optional, injected into chat system prompt)
   personaInstructions: '', // Custom instructions for Claude persona (optional, appended to system prompt)
   cardButtons: { claude: true, terminal: true }, // Which built-in action buttons to show on project cards
+  discordRpcEnabled: true, // Discord Rich Presence ("Coding in {project} - Claude Terminal")
+  discordRpcShowProject: true, // Include the project name in the Discord presence (off = generic)
 };
 
 const settingsState = new State({ ...defaultSettings });
