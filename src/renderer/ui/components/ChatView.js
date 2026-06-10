@@ -91,6 +91,7 @@ const { updateTerminal } = require('../../state/terminals.state');
 const { saveTerminalSessions } = require('../../services/TerminalSessionService');
 
 const MODEL_OPTIONS = [
+  { id: 'claude-fable-5', label: 'Fable 5', desc: 'Most capable model' },
   { id: 'claude-opus-4-8', label: 'Opus 4.8', desc: 'Most capable for complex work' },
   { id: 'claude-opus-4-7', label: 'Opus 4.7', desc: 'Previous generation Opus' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Best for everyday tasks' },

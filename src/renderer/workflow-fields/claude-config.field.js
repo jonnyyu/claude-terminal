@@ -124,6 +124,7 @@ function renderModelEffort(props) {
   <label class="wf-step-edit-label">${t('workflow.claude.modelLabel')}</label>
   <select class="wf-step-edit-input wf-node-prop" data-key="model">
     <option value=""${!props.model ? ' selected' : ''}>Auto</option>
+    <option value="claude-fable-5"${props.model === 'claude-fable-5' ? ' selected' : ''}>Fable 5</option>
     <option value="sonnet"${props.model === 'sonnet' ? ' selected' : ''}>Sonnet</option>
     <option value="opus"${props.model === 'opus' ? ' selected' : ''}>Opus 4.8</option>
     <option value="claude-opus-4-7"${props.model === 'claude-opus-4-7' ? ' selected' : ''}>Opus 4.7</option>

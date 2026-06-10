@@ -3211,7 +3211,8 @@
       "sonnet": "Sonnet 4.6 — Balanced",
       "opus": "Opus 4.7",
       "opus47": "Opus 4.7 — Previous generation",
-      "opus48": "Opus 4.8 — Most capable"
+      "opus48": "Opus 4.8 — Most capable",
+      "fable5": "Fable 5 — Most capable model"
     },
     "empty": {
       "title": "No parallel runs yet",
