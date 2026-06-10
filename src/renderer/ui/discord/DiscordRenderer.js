@@ -125,7 +125,7 @@ function renderPresence(input) {
 /**
  * Try to auto-detect and render any Discord structure
  * @param {string} raw - Raw JSON or code string
- * @returns {{ type: string, html: string } | null}
+ * @returns {{ type: string, html: string, data?: Object } | null}
  */
 function autoRender(raw) {
   if (!raw || typeof raw !== 'string') return null;
@@ -137,28 +137,28 @@ function autoRender(raw) {
 
     // Message (has content or embeds or components)
     if (parsed.content !== undefined || (parsed.embeds && Array.isArray(parsed.embeds))) {
-      return { type: 'message', html: MessageRenderer.render(parsed) };
+      return { type: 'message', html: MessageRenderer.render(parsed), data: parsed };
     }
 
     // Components array
     if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].type !== undefined) {
-      return { type: 'components', html: ComponentRenderer.render(parsed) };
+      return { type: 'components', html: ComponentRenderer.render(parsed), data: parsed };
     }
 
     // Single embed (has title, description, or fields)
     if (parsed.title || parsed.description || parsed.fields) {
-      return { type: 'embed', html: EmbedRenderer.render(parsed) };
+      return { type: 'embed', html: EmbedRenderer.render(parsed), data: parsed };
     }
 
     // Modal (has title and components with text inputs)
     if (parsed.title && parsed.components) {
-      return { type: 'modal', html: ComponentRenderer.renderModal(parsed) };
+      return { type: 'modal', html: ComponentRenderer.renderModal(parsed), data: parsed };
     }
   } catch {
     // Not JSON — try builder code parsing
     const embedFromCode = EmbedRenderer.parseEmbedFromCode(raw);
     if (embedFromCode) {
-      return { type: 'embed', html: EmbedRenderer.render(embedFromCode) };
+      return { type: 'embed', html: EmbedRenderer.render(embedFromCode), data: embedFromCode };
     }
   }
 

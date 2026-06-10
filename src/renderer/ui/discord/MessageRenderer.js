@@ -6,6 +6,75 @@
 const EmbedRenderer = require('./EmbedRenderer');
 const ComponentRenderer = require('./ComponentRenderer');
 
+const { escapeHtml, escapeAttr } = EmbedRenderer;
+
+/**
+ * Render the referenced (replied-to) message line shown above a reply.
+ */
+function renderReply(reply) {
+  if (!reply) return '';
+  const username = escapeHtml(reply.username || 'User');
+  const avatar = reply.avatarUrl
+    ? `<img class="dc-reply-avatar" src="${escapeAttr(reply.avatarUrl)}" alt="">`
+    : `<div class="dc-reply-avatar">${username.charAt(0).toUpperCase()}</div>`;
+  const content = reply.content
+    ? `<span class="dc-reply-content">${EmbedRenderer.renderInlineMarkdown(reply.content)}</span>`
+    : `<span class="dc-reply-content dc-reply-empty">Click to see attachment</span>`;
+  return `<div class="dc-reply"><div class="dc-reply-spine"></div>${avatar}<span class="dc-reply-username">${username}</span>${content}</div>`;
+}
+
+/**
+ * Render message attachments (images inline, other files as file cards).
+ */
+function renderAttachments(attachments) {
+  if (!Array.isArray(attachments) || !attachments.length) return '';
+  let html = '<div class="dc-attachments">';
+  for (const att of attachments) {
+    const url = att.url || att.proxy_url || '';
+    const type = att.content_type || att.contentType || '';
+    const name = att.name || att.filename || 'file';
+    const isImage = /^image\//.test(type) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(url);
+    if (isImage && url) {
+      html += `<img class="dc-attachment-image" src="${escapeAttr(url)}" alt="${escapeAttr(name)}">`;
+    } else {
+      const size = att.size ? formatBytes(att.size) : '';
+      html += `<div class="dc-attachment-file">`
+        + `<svg class="dc-attachment-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M13 9V3.5L18.5 9H13zM6 2c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6H6z"/></svg>`
+        + `<div class="dc-attachment-meta">`
+        + (url ? `<a class="dc-attachment-name" href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>` : `<span class="dc-attachment-name">${escapeHtml(name)}</span>`)
+        + (size ? `<span class="dc-attachment-size">${size}</span>` : '')
+        + `</div></div>`;
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+/**
+ * Render reaction pills.
+ */
+function renderReactions(reactions) {
+  if (!Array.isArray(reactions) || !reactions.length) return '';
+  let html = '<div class="dc-reactions">';
+  for (const r of reactions) {
+    const emoji = ComponentRenderer.renderEmoji(r.emoji);
+    const count = r.count != null ? r.count : 1;
+    const mine = r.me ? ' dc-reaction-me' : '';
+    html += `<div class="dc-reaction${mine}"><span class="dc-reaction-emoji">${emoji}</span><span class="dc-reaction-count">${escapeHtml(String(count))}</span></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes < 1024) return `${bytes || 0} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let v = bytes / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+}
+
 /**
  * Render Discord-specific markdown: mentions, channels, roles, spoilers, timestamps
  */
@@ -96,6 +165,12 @@ function render(message) {
   // Content wrapper
   html += '<div class="dc-message-content">';
 
+  // Reply reference (shown above the header)
+  const reply = message.reply || message.referenced_message;
+  if (reply) {
+    html += renderReply(reply);
+  }
+
   // Header
   html += '<div class="dc-message-header">';
   html += `<span class="dc-message-username">${username}</span>`;
@@ -112,6 +187,11 @@ function render(message) {
     html += `<div class="dc-message-body">${renderMessageMarkdown(message.content)}</div>`;
   }
 
+  // Attachments
+  if (message.attachments && message.attachments.length > 0) {
+    html += renderAttachments(message.attachments);
+  }
+
   // Embeds
   if (message.embeds && message.embeds.length > 0) {
     for (const embed of message.embeds) {
@@ -122,6 +202,11 @@ function render(message) {
   // Components
   if (message.components && message.components.length > 0) {
     html += ComponentRenderer.render(message.components);
+  }
+
+  // Reactions
+  if (message.reactions && message.reactions.length > 0) {
+    html += renderReactions(message.reactions);
   }
 
   html += '</div>'; // .dc-message-content

@@ -109,7 +109,20 @@ function render(data) {
   if (name) html += `<div class="dc-presence-name">${escapeHtml(name)}</div>`;
   if (details) html += `<div class="dc-presence-details">${escapeHtml(details)}</div>`;
   if (state || party) html += `<div class="dc-presence-state">${stateLine}</div>`;
-  if (startMs || endMs) {
+
+  if (startMs && endMs) {
+    // Progress bar (Spotify-style for listening): elapsed / total duration.
+    const now = Date.now();
+    const total = Math.max(1, endMs - startMs);
+    const pct = Math.min(100, Math.max(0, ((now - startMs) / total) * 100));
+    const spotify = type === 'listening' ? ' dc-presence-progress-spotify' : '';
+    html += `<div class="dc-presence-progress${spotify}" data-start="${startMs}" data-end="${endMs}">`
+      + `<div class="dc-presence-bar"><div class="dc-presence-bar-fill" style="width:${pct.toFixed(2)}%"></div></div>`
+      + `<div class="dc-presence-times">`
+      + `<span class="dc-presence-elapsed">${escapeHtml(formatElapsed(now - startMs))}</span>`
+      + `<span class="dc-presence-total">${escapeHtml(formatElapsed(endMs - startMs))}</span>`
+      + `</div></div>`;
+  } else if (startMs || endMs) {
     const attrs = [];
     if (startMs) attrs.push(`data-start="${startMs}"`);
     if (endMs) attrs.push(`data-end="${endMs}"`);

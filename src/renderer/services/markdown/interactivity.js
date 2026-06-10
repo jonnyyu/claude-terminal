@@ -117,6 +117,18 @@ function attachInteractivity(container) {
             target.textContent = 'Copied!';
             setTimeout(() => { target.textContent = 'Copy JSON'; }, 1500);
           }
+        } else if (action === 'dc-copy-code') {
+          const rawEl = preview.querySelector('.dc-chat-raw-djs');
+          if (rawEl) {
+            const text = rawEl.textContent;
+            if (window.electron_api?.app?.clipboardWrite) {
+              window.electron_api.app.clipboardWrite(text);
+            } else {
+              navigator.clipboard.writeText(text).catch(() => {});
+            }
+            target.textContent = 'Copied!';
+            setTimeout(() => { target.textContent = 'Copy as discord.js'; }, 1500);
+          }
         }
       }
       return;
@@ -240,10 +252,12 @@ function formatPresenceElapsed(ms) {
 function startPresenceTicker(container) {
   if (container._dcPresenceTicker) return;
   const tick = () => {
-    const els = container.querySelectorAll('.dc-presence-time[data-start], .dc-presence-time[data-end]');
-    if (!els.length) return;
+    const times = container.querySelectorAll('.dc-presence-time[data-start], .dc-presence-time[data-end]');
+    const bars = container.querySelectorAll('.dc-presence-progress[data-start][data-end]');
+    if (!times.length && !bars.length) return;
     const now = Date.now();
-    els.forEach((el) => {
+
+    times.forEach((el) => {
       const end = el.getAttribute('data-end');
       const start = el.getAttribute('data-start');
       if (end) {
@@ -251,6 +265,17 @@ function startPresenceTicker(container) {
       } else if (start) {
         el.textContent = `${formatPresenceElapsed(now - Number(start))} elapsed`;
       }
+    });
+
+    bars.forEach((el) => {
+      const start = Number(el.getAttribute('data-start'));
+      const end = Number(el.getAttribute('data-end'));
+      const total = Math.max(1, end - start);
+      const pct = Math.min(100, Math.max(0, ((now - start) / total) * 100));
+      const fill = el.querySelector('.dc-presence-bar-fill');
+      if (fill) fill.style.width = `${pct.toFixed(2)}%`;
+      const elapsed = el.querySelector('.dc-presence-elapsed');
+      if (elapsed) elapsed.textContent = formatPresenceElapsed(Math.min(now - start, total));
     });
   };
   container._dcPresenceTicker = setInterval(tick, 1000);
