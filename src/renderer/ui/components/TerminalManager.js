@@ -65,6 +65,10 @@ function getQuickActions() {
 // ── Constants ──
 const PASTE_DEBOUNCE_MS = 500;
 const ARROW_DEBOUNCE_MS = 100;
+// Grace window during which a just-cleared selection still counts for Ctrl+C copy.
+// A live-redrawing TUI (e.g. Claude Code) can wipe the xterm selection between the
+// user's mouse-up and their Ctrl+C, which would otherwise leak Ctrl+C to the PTY as SIGINT.
+const SELECTION_GRACE_MS = 500;
 const READY_DEBOUNCE_MS = 2500;
 const POST_ENTER_DEBOUNCE_MS = 5000;
 const POST_TOOL_DEBOUNCE_MS = 4000;
@@ -803,6 +807,29 @@ class TerminalManager extends BaseComponent {
     const _onBlur = () => { shiftHeld = false; };
     window.addEventListener('blur', _onBlur);
     terminal._blurListener = _onBlur;
+
+    // Remember the last non-empty selection so Ctrl+C still copies even if a
+    // redrawing TUI clears the visual selection just before the keypress.
+    if (!terminal._selectionTracker) {
+      terminal._selectionTracker = terminal.onSelectionChange(() => {
+        const s = terminal.getSelection();
+        if (s) { terminal._lastSelection = s; terminal._lastSelectionAt = Date.now(); }
+      });
+    }
+    const getCopySelection = () => {
+      const live = terminal.getSelection();
+      if (live) return live;
+      if (terminal._lastSelection && Date.now() - (terminal._lastSelectionAt || 0) < SELECTION_GRACE_MS) {
+        return terminal._lastSelection;
+      }
+      return '';
+    };
+    const consumeSelection = () => {
+      terminal.clearSelection();
+      terminal._lastSelection = '';
+      terminal._lastSelectionAt = 0;
+    };
+
     return (e) => {
       if (e.ctrlKey && e.type === 'keydown') {
         const ts = getSetting('terminalShortcuts') || {};
@@ -811,11 +838,11 @@ class TerminalManager extends BaseComponent {
         const ctrlCCustomKey = ts.ctrlC?.key;
         if (ctrlCCustomKey && ctrlCCustomKey !== 'Ctrl+C') {
           if (eventKey === normalizeStoredKey(ctrlCCustomKey) && ts.ctrlC?.enabled !== false) {
-            const selection = terminal.getSelection();
+            const selection = getCopySelection();
             if (selection) {
               navigator.clipboard.writeText(selection)
                 .catch(() => self._api.app.clipboardWrite(selection));
-              terminal.clearSelection();
+              consumeSelection();
               return false;
             }
             return true;
@@ -885,11 +912,11 @@ class TerminalManager extends BaseComponent {
             if (ts.ctrlC?.enabled === false) {
               return true;
             }
-            const selection = terminal.getSelection();
+            const selection = getCopySelection();
             if (selection) {
               navigator.clipboard.writeText(selection)
                 .catch(() => self._api.app.clipboardWrite(selection));
-              terminal.clearSelection();
+              consumeSelection();
               return false;
             }
             return true;
@@ -1339,6 +1366,11 @@ class TerminalManager extends BaseComponent {
     if (termData.terminal && termData.terminal._blurListener) {
       window.removeEventListener('blur', termData.terminal._blurListener);
       termData.terminal._blurListener = null;
+    }
+
+    if (termData.terminal && termData.terminal._selectionTracker) {
+      termData.terminal._selectionTracker.dispose();
+      termData.terminal._selectionTracker = null;
     }
 
     if (termData.terminal) {
