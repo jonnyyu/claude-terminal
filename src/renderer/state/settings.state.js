@@ -18,6 +18,7 @@ const defaultSettings = {
   skipPermissions: false,
   executionMode: 'safe', // 'safe' (default), 'auto' (SDK classifier), 'dangerous' (bypassPermissions)
   accentColor: '#d97706',
+  theme: 'system',
   notificationsEnabled: true,
   closeAction: 'ask', // 'ask', 'minimize', 'quit'
   shortcuts: {}, // Custom keyboard shortcuts overrides

@@ -115,6 +115,41 @@ function loadWebglAddon(terminal) {
   }
 }
 
+// The WebGL renderer (and web-font loading) re-measure cell height *after* the
+// initial fit, which can leave the row count off by a fraction and clip the
+// last terminal row (e.g. the CLI status line). Re-fit once they settle.
+// Fit, then guard against the classic xterm clip: fractional cell heights can
+// make rows*cellHeight render a few px taller than the visible box, hiding the
+// last row (e.g. the CLI status line). Trim rows until the screen fits.
+function fitWithTrim(fitAddon, terminal) {
+  if (!fitAddon || !terminal) return;
+  fitAddon.fit();
+  const el = terminal.element;
+  const screen = el && el.querySelector('.xterm-screen');
+  if (screen && el.clientHeight > 0) {
+    let guard = 0;
+    while (screen.offsetHeight > el.clientHeight && terminal.rows > 2 && guard++ < 6) {
+      terminal.resize(terminal.cols, terminal.rows - 1);
+    }
+  }
+}
+
+// The WebGL renderer and web-font loading re-measure cell height *after* the
+// initial fit, so re-fit once they settle (the container size never changes, so
+// the ResizeObserver alone won't catch it).
+function scheduleRobustFit(fitAddon, terminal, api, id) {
+  if (!fitAddon || !terminal) return;
+  const doFit = () => {
+    try {
+      fitWithTrim(fitAddon, terminal);
+      api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
+    } catch (_) { /* terminal disposed */ }
+  };
+  requestAnimationFrame(doFit);
+  setTimeout(doFit, 250);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(doFit);
+}
+
 function resetOutputSilenceTimer(_id) { /* no-op */ }
 function clearOutputSilenceTimer(_id) { /* no-op */ }
 
@@ -1346,7 +1381,7 @@ class TerminalManager extends BaseComponent {
           termData.chatView.focus();
         }
       } else if (termData.type !== 'file') {
-        termData.fitAddon.fit();
+        fitWithTrim(termData.fitAddon, termData.terminal);
         termData.terminal.focus();
       }
 
@@ -1624,6 +1659,7 @@ class TerminalManager extends BaseComponent {
 
     terminal.open(wrapper);
     loadWebglAddon(terminal);
+    scheduleRobustFit(fitAddon, terminal, this._api, id);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -1737,7 +1773,7 @@ class TerminalManager extends BaseComponent {
     });
 
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      fitWithTrim(fitAddon, terminal);
       self._api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
     });
     resizeObserver.observe(wrapper);
@@ -1901,6 +1937,7 @@ class TerminalManager extends BaseComponent {
     const consoleView = wrapper.querySelector(consoleViewSelector);
     terminal.open(consoleView);
     loadWebglAddon(terminal);
+    scheduleRobustFit(fitAddon, terminal, this._api, id);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -2817,6 +2854,7 @@ class TerminalManager extends BaseComponent {
 
     terminal.open(wrapper);
     loadWebglAddon(terminal);
+    scheduleRobustFit(fitAddon, terminal, this._api, id);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -2877,7 +2915,7 @@ class TerminalManager extends BaseComponent {
     });
 
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      fitWithTrim(fitAddon, terminal);
       self._api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
     });
     resizeObserver.observe(wrapper);
@@ -2971,6 +3009,7 @@ class TerminalManager extends BaseComponent {
 
     terminal.open(wrapper);
     loadWebglAddon(terminal);
+    scheduleRobustFit(fitAddon, terminal, this._api, id);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -3045,7 +3084,7 @@ class TerminalManager extends BaseComponent {
     });
 
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      fitWithTrim(fitAddon, terminal);
       self._api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
     });
     resizeObserver.observe(wrapper);
@@ -3798,6 +3837,7 @@ class TerminalManager extends BaseComponent {
 
       terminal.open(wrapper);
       loadWebglAddon(terminal);
+      scheduleRobustFit(fitAddon, terminal, this._api, id);
 
       updateTerminal(id, {
         mode: 'terminal',
@@ -3869,7 +3909,7 @@ class TerminalManager extends BaseComponent {
       });
 
       const resizeObserver = new ResizeObserver(() => {
-        fitAddon.fit();
+        fitWithTrim(fitAddon, terminal);
         self._api.terminal.resize({ id: ptyId, cols: terminal.cols, rows: terminal.rows });
       });
       resizeObserver.observe(wrapper);
