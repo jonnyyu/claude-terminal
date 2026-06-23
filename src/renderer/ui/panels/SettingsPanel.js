@@ -637,6 +637,33 @@ class SettingsPanel extends BasePanel {
                 </div>
                 <div class="settings-row">
                   <div class="settings-label">
+                    <div>${t('settings.theme')}</div>
+                    <div class="settings-desc">${t('settings.themeDesc')}</div>
+                  </div>
+                  ${(() => {
+                    const themeOpts = [
+                      { v: 'system', label: t('settings.themeSystem') },
+                      { v: 'light', label: t('settings.themeLight') },
+                      { v: 'dark', label: t('settings.themeDark') },
+                    ];
+                    const cur = settings.theme || 'system';
+                    const curLabel = themeOpts.find(o => o.v === cur)?.label || cur;
+                    return `<div class="settings-dropdown" id="theme-dropdown" data-value="${cur}">
+                      <div class="settings-dropdown-trigger">
+                        <span>${curLabel}</span>
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                      </div>
+                      <div class="settings-dropdown-menu">
+                        ${themeOpts.map(o => `<div class="settings-dropdown-option ${cur === o.v ? 'selected' : ''}" data-value="${o.v}">
+                          <span class="dropdown-check"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>
+                          ${o.label}
+                        </div>`).join('')}
+                      </div>
+                    </div>`;
+                  })()}
+                </div>
+                <div class="settings-row">
+                  <div class="settings-label">
                     <div>${t('settings.accentColor')}</div>
                     <div class="settings-desc">${t('settings.accentColorDesc')}</div>
                   </div>
@@ -1731,6 +1758,8 @@ class SettingsPanel extends BasePanel {
       const languageDropdown = document.getElementById('language-dropdown');
       const newTerminalTheme = selectedThemeCard?.dataset.themeId || 'claude';
       const newLanguage = languageDropdown?.dataset.value || getCurrentLanguage();
+      const themeDropdown = document.getElementById('theme-dropdown');
+      const newTheme = themeDropdown?.dataset.value || settings.theme || 'system';
 
       let accentColor = settings.accentColor;
       const selectedSwatch = container.querySelector('.color-swatch.selected');
@@ -1815,6 +1844,7 @@ class SettingsPanel extends BasePanel {
         customEditorCommand: customEditorInput ? customEditorInput.value.trim() : (settings.customEditorCommand || ''),
         skipPermissions: selectedMode?.dataset.mode === 'dangerous',
         accentColor,
+        theme: newTheme,
         closeAction: closeActionDropdown?.dataset.value || 'ask',
         terminalTheme: newTerminalTheme,
         language: newLanguage,
@@ -1874,6 +1904,7 @@ class SettingsPanel extends BasePanel {
       document.body.classList.toggle('reduce-motion', newReduceMotion);
       document.body.classList.toggle('hide-tab-mode-toggle', !newShowTabModeToggle);
       self._ctx.applyAccentColor(newSettings.accentColor);
+      if (self._ctx.applyTheme) self._ctx.applyTheme(newSettings.theme);
 
       if (newTerminalTheme !== settings.terminalTheme) {
         self._ctx.TerminalManager.updateAllTerminalsTheme(newTerminalTheme);
