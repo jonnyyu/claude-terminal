@@ -17,6 +17,7 @@ const defaultSettings = {
   shortcut: typeof navigator !== 'undefined' && navigator.platform?.includes('Mac') ? 'Cmd+Shift+P' : 'Ctrl+Shift+P',
   skipPermissions: false,
   accentColor: '#d97706',
+  theme: 'system',
   notificationsEnabled: true,
   closeAction: 'ask', // 'ask', 'minimize', 'quit'
   shortcuts: {}, // Custom keyboard shortcuts overrides
