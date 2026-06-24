@@ -115,6 +115,63 @@ function loadWebglAddon(terminal) {
   }
 }
 
+// The WebGL renderer (and web-font loading) re-measure cell height *after* the
+// initial fit, which can leave the row count off by a fraction and clip the
+// last terminal row (e.g. the CLI status line). Re-fit once they settle.
+// Fit, then guard against the classic xterm clip: FitAddon computes rows from
+// the *unrounded* CSS cell height, but the renderer draws each row at the
+// device cell height (ceil'd to whole device pixels), so rows*actualHeight can
+// exceed the box and clip the last row (e.g. the CLI status line). Recompute
+// rows from the actual rendered cell height and only ever shrink — never grow
+// past FitAddon's value — so a stale measurement self-heals on the next fit.
+function fitWithTrim(fitAddon, terminal) {
+  if (!fitAddon || !terminal || !terminal.element) return;
+  fitAddon.fit();
+  try {
+    const dims = terminal._core?._renderService?.dimensions;
+    const avail = terminal.element.clientHeight;
+    if (!dims?.css?.cell?.height || avail < 1) return;
+    const dpr = window.devicePixelRatio || 1;
+    const realCell = dims.device?.cell?.height ? dims.device.cell.height / dpr : dims.css.cell.height;
+    if (!(realCell > 0)) return;
+    const rows = Math.max(2, Math.floor(avail / realCell));
+    if (rows < terminal.rows) terminal.resize(terminal.cols, rows);
+  } catch (_) { /* terminal disposed or internals changed */ }
+}
+
+// Paint the terminal host with the theme background so any area the xterm grid
+// doesn't cover (a partial row left below the last line) blends into the theme
+// instead of showing the default black.
+function applyTerminalBackground(terminal, theme) {
+  const bg = theme && theme.background;
+  if (!bg || !terminal?.element) return;
+  terminal.element.style.backgroundColor = bg;
+  // .xterm-viewport is absolutely positioned over the whole terminal with a
+  // hardcoded #000 background; the canvas only paints rows that have content,
+  // so a partial trailing row shows the viewport's black. Match it to the theme.
+  const viewport = terminal.element.querySelector('.xterm-viewport');
+  if (viewport) viewport.style.backgroundColor = bg;
+  const wrapper = terminal.element.closest('.terminal-wrapper');
+  if (wrapper) wrapper.style.backgroundColor = bg;
+}
+
+// The WebGL renderer and web-font loading re-measure cell height *after* the
+// initial fit, so re-fit once they settle (the container size never changes, so
+// the ResizeObserver alone won't catch it).
+function scheduleRobustFit(fitAddon, terminal, api, id) {
+  if (!fitAddon || !terminal) return;
+  const doFit = () => {
+    try {
+      fitWithTrim(fitAddon, terminal);
+      applyTerminalBackground(terminal, terminal.options?.theme);
+      api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
+    } catch (_) { /* terminal disposed */ }
+  };
+  requestAnimationFrame(doFit);
+  setTimeout(doFit, 250);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(doFit);
+}
+
 function resetOutputSilenceTimer(_id) { /* no-op */ }
 function clearOutputSilenceTimer(_id) { /* no-op */ }
 
@@ -1346,7 +1403,7 @@ class TerminalManager extends BaseComponent {
           termData.chatView.focus();
         }
       } else if (termData.type !== 'file') {
-        termData.fitAddon.fit();
+        fitWithTrim(termData.fitAddon, termData.terminal);
         termData.terminal.focus();
       }
 
@@ -1624,6 +1681,7 @@ class TerminalManager extends BaseComponent {
 
     terminal.open(wrapper);
     loadWebglAddon(terminal);
+    scheduleRobustFit(fitAddon, terminal, this._api, id);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -1737,7 +1795,7 @@ class TerminalManager extends BaseComponent {
     });
 
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      fitWithTrim(fitAddon, terminal);
       self._api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
     });
     resizeObserver.observe(wrapper);
@@ -1901,6 +1959,7 @@ class TerminalManager extends BaseComponent {
     const consoleView = wrapper.querySelector(consoleViewSelector);
     terminal.open(consoleView);
     loadWebglAddon(terminal);
+    scheduleRobustFit(fitAddon, terminal, this._api, id);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -2817,6 +2876,7 @@ class TerminalManager extends BaseComponent {
 
     terminal.open(wrapper);
     loadWebglAddon(terminal);
+    scheduleRobustFit(fitAddon, terminal, this._api, id);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -2877,7 +2937,7 @@ class TerminalManager extends BaseComponent {
     });
 
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      fitWithTrim(fitAddon, terminal);
       self._api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
     });
     resizeObserver.observe(wrapper);
@@ -2971,6 +3031,7 @@ class TerminalManager extends BaseComponent {
 
     terminal.open(wrapper);
     loadWebglAddon(terminal);
+    scheduleRobustFit(fitAddon, terminal, this._api, id);
     setTimeout(() => {
       const fitContainer = wrapper.closest('.terminal-wrapper') || wrapper;
       if (fitContainer.offsetWidth > 0 && fitContainer.offsetHeight > 0) {
@@ -3045,7 +3106,7 @@ class TerminalManager extends BaseComponent {
     });
 
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+      fitWithTrim(fitAddon, terminal);
       self._api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
     });
     resizeObserver.observe(wrapper);
@@ -3516,6 +3577,7 @@ class TerminalManager extends BaseComponent {
     terminals.forEach((termData, id) => {
       if (termData.terminal && termData.terminal.options) {
         termData.terminal.options.theme = theme;
+        applyTerminalBackground(termData.terminal, theme);
       }
     });
   }
@@ -3798,6 +3860,7 @@ class TerminalManager extends BaseComponent {
 
       terminal.open(wrapper);
       loadWebglAddon(terminal);
+      scheduleRobustFit(fitAddon, terminal, this._api, id);
 
       updateTerminal(id, {
         mode: 'terminal',
@@ -3869,7 +3932,7 @@ class TerminalManager extends BaseComponent {
       });
 
       const resizeObserver = new ResizeObserver(() => {
-        fitAddon.fit();
+        fitWithTrim(fitAddon, terminal);
         self._api.terminal.resize({ id: ptyId, cols: terminal.cols, rows: terminal.rows });
       });
       resizeObserver.observe(wrapper);
