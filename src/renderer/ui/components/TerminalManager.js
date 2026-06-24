@@ -1598,7 +1598,7 @@ class TerminalManager extends BaseComponent {
       var id = result;
     }
 
-    const terminalThemeId = getSetting('terminalTheme') || 'claude';
+    const terminalThemeId = this.getEffectiveTerminalThemeId();
     const terminal = new Terminal({
       theme: getTerminalTheme(terminalThemeId),
       fontFamily: TERMINAL_FONTS.claude.fontFamily,
@@ -1903,7 +1903,7 @@ class TerminalManager extends BaseComponent {
 
     const id = `${typeId}-${projectIndex}-${Date.now()}`;
 
-    const themeId = getSetting('terminalTheme') || 'claude';
+    const themeId = this.getEffectiveTerminalThemeId();
     const terminal = new Terminal({
       theme: getTerminalTheme(themeId),
       fontFamily: TERMINAL_FONTS[typeId]?.fontFamily || TERMINAL_FONTS.fivem.fontFamily,
@@ -2826,7 +2826,7 @@ class TerminalManager extends BaseComponent {
       var id = result;
     }
 
-    const terminalThemeId = getSetting('terminalTheme') || 'claude';
+    const terminalThemeId = this.getEffectiveTerminalThemeId();
     const terminal = new Terminal({
       theme: getTerminalTheme(terminalThemeId),
       fontFamily: TERMINAL_FONTS.claude.fontFamily,
@@ -2987,7 +2987,7 @@ class TerminalManager extends BaseComponent {
       var id = result;
     }
 
-    const terminalThemeId = getSetting('terminalTheme') || 'claude';
+    const terminalThemeId = this.getEffectiveTerminalThemeId();
     const terminal = new Terminal({
       theme: getTerminalTheme(terminalThemeId),
       fontFamily: TERMINAL_FONTS.claude.fontFamily,
@@ -3578,6 +3578,19 @@ class TerminalManager extends BaseComponent {
 
   // ── Theme ──
 
+  // The terminal theme follows the resolved app theme: a separate choice for
+  // light vs dark, picked by the data-theme the app currently renders with.
+  getEffectiveTerminalThemeId() {
+    const resolved = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+    return resolved === 'light'
+      ? (getSetting('terminalThemeLight') || 'lightPlus')
+      : (getSetting('terminalThemeDark') || 'claude');
+  }
+
+  syncTerminalThemeToAppTheme() {
+    this.updateAllTerminalsTheme(this.getEffectiveTerminalThemeId());
+  }
+
   updateAllTerminalsTheme(themeId) {
     const theme = getTerminalTheme(themeId);
     const terminals = terminalsState.get().terminals;
@@ -3835,7 +3848,7 @@ class TerminalManager extends BaseComponent {
       wrapper.classList.remove('chat-wrapper');
       tab.classList.remove('chat-mode');
 
-      const terminalThemeId = getSetting('terminalTheme') || 'claude';
+      const terminalThemeId = this.getEffectiveTerminalThemeId();
       const terminal = new Terminal({
         theme: getTerminalTheme(terminalThemeId),
         fontFamily: TERMINAL_FONTS.claude.fontFamily,
@@ -4333,6 +4346,8 @@ module.exports = {
   updateTerminalStatus: (id, status) => _getInstance().updateTerminalStatus(id, status),
   resumeSession: (project, sessionId, options) => _getInstance().resumeSession(project, sessionId, options),
   updateAllTerminalsTheme: (themeId) => _getInstance().updateAllTerminalsTheme(themeId),
+  getEffectiveTerminalThemeId: () => _getInstance().getEffectiveTerminalThemeId(),
+  syncTerminalThemeToAppTheme: () => _getInstance().syncTerminalThemeToAppTheme(),
   focusNextTerminal: () => _getInstance().focusNextTerminal(),
   focusPrevTerminal: () => _getInstance().focusPrevTerminal(),
   openFileTab: (filePath, project) => _getInstance().openFileTab(filePath, project),

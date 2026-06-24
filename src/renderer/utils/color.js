@@ -140,13 +140,17 @@ function applyTheme(theme) {
 
 let _systemThemeMql = null;
 let _systemThemeHandler = null;
-function watchSystemTheme(getThemeSetting) {
+function watchSystemTheme(getThemeSetting, onApplied) {
   if (typeof window.matchMedia !== 'function') return;
   if (_systemThemeMql && _systemThemeHandler) {
     _systemThemeMql.removeEventListener('change', _systemThemeHandler);
   }
   _systemThemeMql = window.matchMedia('(prefers-color-scheme: light)');
-  _systemThemeHandler = () => { if (getThemeSetting() === 'system') applyTheme('system'); };
+  _systemThemeHandler = () => {
+    if (getThemeSetting() !== 'system') return;
+    const resolved = applyTheme('system');
+    if (typeof onApplied === 'function') onApplied(resolved);
+  };
   _systemThemeMql.addEventListener('change', _systemThemeHandler);
 }
 
