@@ -761,14 +761,22 @@ class TerminalManager extends BaseComponent {
         .catch(() => tryImagePaste()));
   }
 
-  // No text in the clipboard usually means an image. We swallow Ctrl+V to run
-  // our text paste, so the running `claude` CLI never sees a paste key and
-  // can't grab the image itself. Relay the Alt+V / Option+V sequence (ESC v),
-  // which is the native binding Claude Code listens to for reading an image
-  // off the clipboard. Sent as raw bytes, so it behaves the same on every OS.
+  // No text in the clipboard usually means an image. The Claude CLI reads
+  // clipboard images itself on a native paste key, but we intercept the paste
+  // before it reaches the PTY and an embedded terminal can't replay that key.
+  // Instead, save the clipboard image to a temp PNG and paste its file path,
+  // which the CLI loads as an image when the prompt is submitted.
   _relayImagePaste(terminalId, inputChannel) {
     if (inputChannel !== 'terminal-input') return;
-    this._api.terminal.input({ id: terminalId, data: '\x1bv' });
+    this._api.terminal.saveClipboardImage()
+      .then((filePath) => {
+        if (!filePath) return;
+        const xterm = getTerminal(terminalId)?.terminal;
+        const payload = `${filePath} `;
+        if (xterm) xterm.paste(payload);
+        else this._api.terminal.input({ id: terminalId, data: payload });
+      })
+      .catch(() => {});
   }
 
   _setupClipboardShortcuts(wrapper, terminal, terminalId, inputChannel = 'terminal-input') {
