@@ -3,7 +3,10 @@
  * Handles terminal-related IPC communication
  */
 
-const { ipcMain } = require('electron');
+const { ipcMain, clipboard } = require('electron');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const terminalService = require('../services/TerminalService');
 const { sendFeaturePing } = require('../services/TelemetryService');
 
@@ -35,6 +38,27 @@ function registerTerminalHandlers() {
   // Kill terminal
   ipcMain.on('terminal-kill', (event, { id }) => {
     terminalService.kill(id);
+  });
+
+  // Save the current clipboard image to a temp PNG and return its path.
+  // The Claude CLI can't read a clipboard image from an embedded terminal
+  // (Cmd+V is intercepted before it reaches the CLI), so we hand it a file
+  // path to paste into the prompt instead. Returns null when there's no image.
+  ipcMain.handle('terminal-save-clipboard-image', () => {
+    try {
+      const image = clipboard.readImage();
+      if (!image || image.isEmpty()) return null;
+      const png = image.toPNG();
+      if (!png || png.length === 0) return null;
+      const dir = path.join(os.tmpdir(), 'claude-terminal-paste');
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, `clip-${Date.now()}.png`);
+      fs.writeFileSync(file, png);
+      return file;
+    } catch (error) {
+      console.error('[Terminal IPC] Save clipboard image error:', error);
+      return null;
+    }
   });
 }
 

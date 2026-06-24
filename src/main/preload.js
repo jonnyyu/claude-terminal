@@ -213,6 +213,7 @@ contextBridge.exposeInMainWorld('electron_api', {
     input: (params) => ipcRenderer.send('terminal-input', params),
     resize: (params) => ipcRenderer.send('terminal-resize', params),
     kill: (params) => ipcRenderer.send('terminal-kill', params),
+    saveClipboardImage: () => ipcRenderer.invoke('terminal-save-clipboard-image'),
     onData: createListener('terminal-data'),
     onExit: createListener('terminal-exit')
   },
