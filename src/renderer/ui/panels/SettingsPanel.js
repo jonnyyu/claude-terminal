@@ -683,7 +683,11 @@ class SettingsPanel extends BasePanel {
                     <div class="settings-desc">${t('settings.terminalThemeDesc')}</div>
                   </div>
                   <button type="button" class="btn-outline" id="btn-go-themes">
-                    ${this._ctx.TERMINAL_THEMES[settings.terminalTheme || 'claude']?.name || 'Claude'}
+                    ${(() => {
+                      const resolved = (typeof document !== 'undefined' && document.documentElement.dataset.theme === 'light') ? 'light' : 'dark';
+                      const id = resolved === 'light' ? (settings.terminalThemeLight || 'lightPlus') : (settings.terminalThemeDark || 'claude');
+                      return this._ctx.TERMINAL_THEMES[id]?.name || 'Claude';
+                    })()}
                   </button>
                 </div>
               </div>
@@ -1293,23 +1297,31 @@ class SettingsPanel extends BasePanel {
             <div class="settings-group">
               <div class="settings-group-title">${t('settings.themesTitle')}</div>
               <div class="settings-desc" style="margin-bottom: 12px; color: var(--text-muted); font-size: 12px;">${t('settings.themesDesc')}</div>
-              <div class="theme-grid" id="theme-grid">
-                ${Object.entries(this._ctx.TERMINAL_THEMES).map(([id, theme]) => {
-                  const isSelected = settings.terminalTheme === id || (!settings.terminalTheme && id === 'claude');
-                  const colors = [theme.red, theme.green, theme.yellow, theme.blue, theme.magenta, theme.cyan];
-                  return `<div class="theme-card ${isSelected ? 'selected' : ''}" data-theme-id="${id}">
-                    <div class="theme-card-preview" style="background:${theme.background}">
-                      <span class="theme-card-cursor" style="background:${theme.cursor}"></span>
-                      <span class="theme-card-text" style="color:${theme.foreground}">~$&nbsp;</span>
-                      <span class="theme-card-text" style="color:${theme.green}">node</span>
-                    </div>
-                    <div class="theme-card-colors">
-                      ${colors.map(c => `<span class="theme-card-swatch" style="background:${c}"></span>`).join('')}
-                    </div>
-                    <div class="theme-card-name">${theme.name}</div>
-                  </div>`;
-                }).join('')}
-              </div>
+              ${(() => {
+                const renderGrid = (slot, selectedId) => `<div class="theme-grid" id="theme-grid-${slot}" data-slot="${slot}">
+                  ${Object.entries(this._ctx.TERMINAL_THEMES).map(([id, theme]) => {
+                    const isSelected = selectedId === id;
+                    const colors = [theme.red, theme.green, theme.yellow, theme.blue, theme.magenta, theme.cyan];
+                    return `<div class="theme-card ${isSelected ? 'selected' : ''}" data-slot="${slot}" data-theme-id="${id}">
+                      <div class="theme-card-preview" style="background:${theme.background}">
+                        <span class="theme-card-cursor" style="background:${theme.cursor}"></span>
+                        <span class="theme-card-text" style="color:${theme.foreground}">~$&nbsp;</span>
+                        <span class="theme-card-text" style="color:${theme.green}">node</span>
+                      </div>
+                      <div class="theme-card-colors">
+                        ${colors.map(c => `<span class="theme-card-swatch" style="background:${c}"></span>`).join('')}
+                      </div>
+                      <div class="theme-card-name">${theme.name}</div>
+                    </div>`;
+                  }).join('')}
+                </div>`;
+                const lightId = settings.terminalThemeLight || 'lightPlus';
+                const darkId = settings.terminalThemeDark || 'claude';
+                return `<div class="settings-subsection-title">${t('settings.themeDarkTerminal')}</div>
+                  ${renderGrid('dark', darkId)}
+                  <div class="settings-subsection-title" style="margin-top:16px;">${t('settings.themeLightTerminal')}</div>
+                  ${renderGrid('light', lightId)}`;
+              })()}
             </div>
           </div>
           <!-- Shortcuts Tab -->
@@ -1498,14 +1510,21 @@ class SettingsPanel extends BasePanel {
 
     container.querySelectorAll('.theme-card').forEach(card => {
       card.onclick = () => {
-        container.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
+        const slot = card.dataset.slot;
+        container.querySelectorAll(`.theme-card[data-slot="${slot}"]`).forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
         const themeId = card.dataset.themeId;
-        self._ctx.TerminalManager.updateAllTerminalsTheme(themeId);
-        const btn = document.getElementById('btn-go-themes');
-        if (btn) {
-          const themeName = self._ctx.TERMINAL_THEMES[themeId]?.name || themeId;
-          btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg> ${themeName}`;
+        // Preview live only when this slot matches the currently rendered theme.
+        const resolved = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+        if (slot === resolved) {
+          self._ctx.TerminalManager.updateAllTerminalsTheme(themeId);
+        }
+        if (slot === resolved) {
+          const btn = document.getElementById('btn-go-themes');
+          if (btn) {
+            const themeName = self._ctx.TERMINAL_THEMES[themeId]?.name || themeId;
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg> ${themeName}`;
+          }
         }
       };
     });
@@ -1754,9 +1773,11 @@ class SettingsPanel extends BasePanel {
       const selectedMode = container.querySelector('.execution-mode-card:not(.terminal-mode-card).selected');
       const selectedTerminalMode = container.querySelector('.terminal-mode-card.selected');
       const closeActionDropdown = document.getElementById('close-action-dropdown');
-      const selectedThemeCard = container.querySelector('.theme-card.selected');
+      const selectedLightCard = container.querySelector('.theme-card[data-slot="light"].selected');
+      const selectedDarkCard = container.querySelector('.theme-card[data-slot="dark"].selected');
       const languageDropdown = document.getElementById('language-dropdown');
-      const newTerminalTheme = selectedThemeCard?.dataset.themeId || 'claude';
+      const newTerminalThemeLight = selectedLightCard?.dataset.themeId || settings.terminalThemeLight || 'lightPlus';
+      const newTerminalThemeDark = selectedDarkCard?.dataset.themeId || settings.terminalThemeDark || 'claude';
       const newLanguage = languageDropdown?.dataset.value || getCurrentLanguage();
       const themeDropdown = document.getElementById('theme-dropdown');
       const newTheme = themeDropdown?.dataset.value || settings.theme || 'system';
@@ -1846,7 +1867,8 @@ class SettingsPanel extends BasePanel {
         accentColor,
         theme: newTheme,
         closeAction: closeActionDropdown?.dataset.value || 'ask',
-        terminalTheme: newTerminalTheme,
+        terminalThemeLight: newTerminalThemeLight,
+        terminalThemeDark: newTerminalThemeDark,
         language: newLanguage,
         compactProjects: newCompactProjects,
         cardButtons: newCardButtons,
@@ -1906,9 +1928,8 @@ class SettingsPanel extends BasePanel {
       self._ctx.applyAccentColor(newSettings.accentColor);
       if (self._ctx.applyTheme) self._ctx.applyTheme(newSettings.theme);
 
-      if (newTerminalTheme !== settings.terminalTheme) {
-        self._ctx.TerminalManager.updateAllTerminalsTheme(newTerminalTheme);
-      }
+      // Resolve the app theme (now applied) to the matching terminal theme slot.
+      self._ctx.TerminalManager.syncTerminalThemeToAppTheme();
 
       const launchAtStartupToggle = document.getElementById('launch-at-startup-toggle');
       if (launchAtStartupToggle) {

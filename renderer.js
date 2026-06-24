@@ -298,7 +298,7 @@ const { loadSessionData, clearProjectSessions, saveTerminalSessions } = require(
   updateStaticTranslations(); // Apply translations to static HTML elements
   applyAccentColor(settingsState.get().accentColor || '#d97706');
   applyTheme(settingsState.get().theme || 'system');
-  watchSystemTheme(() => settingsState.get().theme || 'system');
+  watchSystemTheme(() => settingsState.get().theme || 'system', () => TerminalManager.syncTerminalThemeToAppTheme());
   if (settingsState.get().compactProjects !== false) {
     document.body.classList.add('compact-projects');
   }
