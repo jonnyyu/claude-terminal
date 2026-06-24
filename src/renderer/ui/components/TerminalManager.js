@@ -118,20 +118,41 @@ function loadWebglAddon(terminal) {
 // The WebGL renderer (and web-font loading) re-measure cell height *after* the
 // initial fit, which can leave the row count off by a fraction and clip the
 // last terminal row (e.g. the CLI status line). Re-fit once they settle.
-// Fit, then guard against the classic xterm clip: fractional cell heights can
-// make rows*cellHeight render a few px taller than the visible box, hiding the
-// last row (e.g. the CLI status line). Trim rows until the screen fits.
+// Fit, then guard against the classic xterm clip: FitAddon computes rows from
+// the *unrounded* CSS cell height, but the renderer draws each row at the
+// device cell height (ceil'd to whole device pixels), so rows*actualHeight can
+// exceed the box and clip the last row (e.g. the CLI status line). Recompute
+// rows from the actual rendered cell height and only ever shrink — never grow
+// past FitAddon's value — so a stale measurement self-heals on the next fit.
 function fitWithTrim(fitAddon, terminal) {
-  if (!fitAddon || !terminal) return;
+  if (!fitAddon || !terminal || !terminal.element) return;
   fitAddon.fit();
-  const el = terminal.element;
-  const screen = el && el.querySelector('.xterm-screen');
-  if (screen && el.clientHeight > 0) {
-    let guard = 0;
-    while (screen.offsetHeight > el.clientHeight && terminal.rows > 2 && guard++ < 6) {
-      terminal.resize(terminal.cols, terminal.rows - 1);
-    }
-  }
+  try {
+    const dims = terminal._core?._renderService?.dimensions;
+    const avail = terminal.element.clientHeight;
+    if (!dims?.css?.cell?.height || avail < 1) return;
+    const dpr = window.devicePixelRatio || 1;
+    const realCell = dims.device?.cell?.height ? dims.device.cell.height / dpr : dims.css.cell.height;
+    if (!(realCell > 0)) return;
+    const rows = Math.max(2, Math.floor(avail / realCell));
+    if (rows < terminal.rows) terminal.resize(terminal.cols, rows);
+  } catch (_) { /* terminal disposed or internals changed */ }
+}
+
+// Paint the terminal host with the theme background so any area the xterm grid
+// doesn't cover (a partial row left below the last line) blends into the theme
+// instead of showing the default black.
+function applyTerminalBackground(terminal, theme) {
+  const bg = theme && theme.background;
+  if (!bg || !terminal?.element) return;
+  terminal.element.style.backgroundColor = bg;
+  // .xterm-viewport is absolutely positioned over the whole terminal with a
+  // hardcoded #000 background; the canvas only paints rows that have content,
+  // so a partial trailing row shows the viewport's black. Match it to the theme.
+  const viewport = terminal.element.querySelector('.xterm-viewport');
+  if (viewport) viewport.style.backgroundColor = bg;
+  const wrapper = terminal.element.closest('.terminal-wrapper');
+  if (wrapper) wrapper.style.backgroundColor = bg;
 }
 
 // The WebGL renderer and web-font loading re-measure cell height *after* the
@@ -142,6 +163,7 @@ function scheduleRobustFit(fitAddon, terminal, api, id) {
   const doFit = () => {
     try {
       fitWithTrim(fitAddon, terminal);
+      applyTerminalBackground(terminal, terminal.options?.theme);
       api.terminal.resize({ id, cols: terminal.cols, rows: terminal.rows });
     } catch (_) { /* terminal disposed */ }
   };
@@ -3555,6 +3577,7 @@ class TerminalManager extends BaseComponent {
     terminals.forEach((termData, id) => {
       if (termData.terminal && termData.terminal.options) {
         termData.terminal.options.theme = theme;
+        applyTerminalBackground(termData.terminal, theme);
       }
     });
   }
