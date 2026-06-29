@@ -1068,6 +1068,13 @@ class ChatView extends BaseComponent {
   wrapperEl.addEventListener('keyup', (e) => { if (e.key === 'Shift') shiftHeld = false; }, true);
   window.addEventListener('blur', _onShiftBlur);
 
+  // Track IME composition ourselves: relying on a single event's e.isComposing is
+  // unreliable across IMEs (some end composition before the Enter keydown fires).
+  let imeComposing = false;
+  let lastCompositionEndAt = 0;
+  inputEl.addEventListener('compositionstart', () => { imeComposing = true; });
+  inputEl.addEventListener('compositionend', () => { imeComposing = false; lastCompositionEndAt = Date.now(); });
+
   // Ctrl+Arrow to switch terminals/projects (capture phase to intercept before textarea)
   wrapperEl.addEventListener('keydown', (e) => {
     if (e.key === 'Shift') shiftHeld = true;
@@ -1192,6 +1199,16 @@ class ChatView extends BaseComponent {
           }
         }
       }
+    }
+
+    // While an IME (e.g. Chinese pinyin) is composing, Enter only confirms the
+    // candidate — it must never submit the message or insert a line break.
+    // Belt-and-suspenders: native flags AND our own tracked state AND a short
+    // grace window after compositionend (some IMEs end composition a tick early).
+    if (e.key === 'Enter' &&
+        (e.isComposing || e.keyCode === 229 || imeComposing ||
+         (Date.now() - lastCompositionEndAt) < 100)) {
+      return;
     }
 
     // Shift+Enter: insert line break
